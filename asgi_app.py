@@ -95,9 +95,7 @@ def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
                         "fund_type": fund.fon_turu,
                         "manager": fund.yonetici,
                         "risk": fund.risk_degeri,
-                        "source": fund.veri_kaynak
-                        if hasattr(fund, "veri_kaynak") and fund.veri_kaynak is not None
-                        else "tefas",
+                        "source": getattr(fund, "veri_kaynak", None) or "tefas",
                     },
                 }
             )

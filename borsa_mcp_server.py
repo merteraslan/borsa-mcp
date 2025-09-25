@@ -144,6 +144,9 @@ async def genel_arama(
 ) -> GenelAramaSonucu:
     """General search helper used by ChatGPT to discover relevant tickers or funds."""
 
+    if not arama_kategorisi:
+        arama_kategorisi = "auto"
+
     logger.info(
         "Tool 'search' called with query=%r, category=%s, limit=%s",
         arama_terimi,
@@ -155,14 +158,13 @@ async def genel_arama(
         raise ToolError("You must enter at least 2 characters to search.")
 
     arama_terimi = arama_terimi.strip()
-    kategori = arama_kategorisi or "auto"
 
     sirket_sonuclari = None
     endeks_sonuclari = None
     fon_sonuclari = None
     ozet_bolumleri: list[str] = []
 
-    if kategori in ("auto", "company"):
+    if arama_kategorisi in ("auto", "company"):
         try:
             company_result = await borsa_client.search_companies_from_kap(arama_terimi)
             toplam = len(company_result.sonuclar)
@@ -198,7 +200,7 @@ async def genel_arama(
             )
             ozet_bolumleri.append("Şirket araması başarısız oldu.")
 
-    if kategori in ("auto", "index"):
+    if arama_kategorisi in ("auto", "index"):
         try:
             index_result = await borsa_client.search_indices_from_kap(arama_terimi)
             toplam = len(index_result.sonuclar)
@@ -235,7 +237,7 @@ async def genel_arama(
             )
             ozet_bolumleri.append("Endeks araması başarısız oldu.")
 
-    if kategori in ("auto", "fund"):
+    if arama_kategorisi in ("auto", "fund"):
         try:
             fund_result = await borsa_client.search_funds(
                 arama_terimi,
@@ -269,7 +271,7 @@ async def genel_arama(
 
     return GenelAramaSonucu(
         arama_terimi=arama_terimi,
-        arama_kategorisi=kategori,
+        arama_kategorisi=arama_kategorisi,
         sirket_sonuclari=sirket_sonuclari,
         endeks_sonuclari=endeks_sonuclari,
         fon_sonuclari=fon_sonuclari,
