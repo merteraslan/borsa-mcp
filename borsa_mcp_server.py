@@ -131,7 +131,7 @@ def _trim_list_result(
 
     if not isinstance(result, SupportsListResult):
         raise TypeError(
-            "Expected search result model implementing SupportsListResult with 'sonuclar' support, "
+            f"Expected search result model implementing SupportsListResult protocol, "
             f"but received instance of {type(result).__name__}."
         )
 

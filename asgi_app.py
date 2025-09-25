@@ -49,7 +49,21 @@ class SearchActionRequest(BaseModel):
 
 
 def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
-    """Flatten grouped search results into MCP search action items."""
+    """
+    Combines search results from companies, indices, and funds into a single flat list.
+
+    Each item in the returned list follows the MCP search action format:
+        {
+            "id": str,         # Unique identifier prefixed by type (e.g., "company:XXX")
+            "title": str,      # Display name with code
+            "type": str,       # One of "company", "index", or "fund"
+            "url": str,        # Link to details page
+            "summary": str,    # Short description or type
+            "metadata": dict,  # Additional metadata specific to the item type
+        }
+
+    The function flattens and merges results from companies, indices, and funds into this unified format.
+    """
 
     items: List[Dict[str, Any]] = []
 
@@ -210,7 +224,11 @@ async def root():
 
 # Standardized MCP discovery payload builder so all endpoints share the same schema
 def _build_discovery_payload() -> Dict[str, Any]:
-    """Create an MCP discovery payload that follows the HTTP transport specification."""
+    """
+    Create an MCP discovery payload that follows the MCP HTTP transport specification v1.0.
+
+    This format follows MCP HTTP transport specification version 1.0.
+    """
 
     base_endpoint = f"{BASE_URL.rstrip('/')}/mcp"
     search_schema = SearchActionRequest.model_json_schema()
