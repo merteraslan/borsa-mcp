@@ -100,8 +100,7 @@ def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
                         "fund_type": fund.fon_turu,
                         "manager": fund.yonetici,
                         "risk": fund.risk_degeri,
-                        # 'veri_kaynak' may be missing if the upstream payload omits the field.
-                        "source": getattr(fund, "veri_kaynak", "tefas") or "tefas",
+                        "source": fund.veri_kaynak or "tefas",
                     },
                 }
             )

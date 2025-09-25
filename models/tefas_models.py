@@ -44,7 +44,9 @@ class FonAramaSonucu(BaseModel):
     toplam_fon_sayisi: Optional[int] = Field(None, description="Total funds available in database.")
     kategori_listesi: Optional[List[str]] = Field(None, description="Available fund categories.")
     siralam_kriteri: Optional[str] = Field(None, description="Sort criteria applied.")
-    veri_kaynak: Optional[str] = Field(None, description="Data source: 'takasbank' or 'tefas'.")
+    veri_kaynak: Optional[str] = Field(
+        "tefas", description="Data source: 'takasbank' or 'tefas'."
+    )
     
     error_message: Optional[str] = Field(None, description="Error message if search failed.")
 

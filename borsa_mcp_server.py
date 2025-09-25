@@ -105,7 +105,12 @@ def _trim_list_result(
 ) -> tuple[SearchResultModel, str]:
     """Trim list-based KAP search results and create a summary snippet."""
 
-    items = getattr(result, "sonuclar", [])
+    if not hasattr(result, "sonuclar"):
+        raise TypeError(
+            f"{type(result).__name__} does not expose required 'sonuclar' attribute"
+        )
+
+    items = result.sonuclar
     total = len(items)
 
     if total > 0:
