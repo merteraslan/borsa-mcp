@@ -12,17 +12,99 @@ Usage:
 import os
 import logging
 import json
-from fastapi import FastAPI, Request
+from typing import Any, Dict, List
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
+from fastmcp.exceptions import ToolError
+from pydantic import BaseModel, Field
 
 # Import the MCP server
-from borsa_mcp_server import app as mcp_server
+from borsa_mcp_server import (
+    SearchCategoryLiteral,
+    app as mcp_server,
+    genel_arama,
+)
+from models import GenelAramaSonucu
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Pydantic model and helper utilities for MCP search action responses
+class SearchActionRequest(BaseModel):
+    query: str = Field(..., min_length=2, description="Search query text.")
+    category: SearchCategoryLiteral = Field(
+        "auto",
+        description="Optional scope limiter for the search (company, index, fund, auto).",
+    )
+    limit: int = Field(10, ge=1, le=50, description="Maximum results per group.")
+    use_takasbank: bool = Field(
+        True,
+        description="Whether to use the cached Takasbank dataset for fund lookups when available.",
+    )
+
+
+def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
+    """Flatten grouped search results into MCP search action items."""
+
+    items: List[Dict[str, Any]] = []
+
+    if result.sirket_sonuclari and result.sirket_sonuclari.sonuclar:
+        for company in result.sirket_sonuclari.sonuclar:
+            items.append(
+                {
+                    "id": f"company:{company.ticker_kodu}",
+                    "title": f"{company.sirket_adi} ({company.ticker_kodu})",
+                    "type": "company",
+                    "url": f"https://www.kap.org.tr/tr/Company/Detail/{company.ticker_kodu}",
+                    "summary": f"{company.sirket_adi} - {company.sehir}",
+                    "metadata": {
+                        "ticker": company.ticker_kodu,
+                        "city": company.sehir,
+                        "source": "kap",
+                    },
+                }
+            )
+
+    if result.endeks_sonuclari and result.endeks_sonuclari.sonuclar:
+        for index in result.endeks_sonuclari.sonuclar:
+            items.append(
+                {
+                    "id": f"index:{index.endeks_kodu}",
+                    "title": f"{index.endeks_adi} ({index.endeks_kodu})",
+                    "type": "index",
+                    "url": "https://www.kap.org.tr/tr/Endeksler",
+                    "summary": index.endeks_adi,
+                    "metadata": {
+                        "code": index.endeks_kodu,
+                        "source": "kap",
+                    },
+                }
+            )
+
+    if result.fon_sonuclari and result.fon_sonuclari.sonuclar:
+        for fund in result.fon_sonuclari.sonuclar:
+            items.append(
+                {
+                    "id": f"fund:{fund.fon_kodu}",
+                    "title": f"{fund.fon_adi} ({fund.fon_kodu})",
+                    "type": "fund",
+                    "url": f"https://www.tefas.gov.tr/FonAnaliz.aspx?FonKod={fund.fon_kodu}",
+                    "summary": (fund.fon_turu or "") or "TEFAS investment fund",
+                    "metadata": {
+                        "code": fund.fon_kodu,
+                        "fund_type": fund.fon_turu,
+                        "manager": fund.yonetici,
+                        "risk": fund.risk_degeri,
+                        "source": getattr(fund, "veri_kaynak", None) or "tefas",
+                    },
+                }
+            )
+
+    return items
 
 # Base URL configuration
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
@@ -157,7 +239,8 @@ async def mcp_discovery():
             "actions": {
                 "search": {
                     "tool": "search",
-                    "description": "Unified search across BIST companies, indices, and TEFAS funds."
+                    "description": "Unified search across BIST companies, indices, and TEFAS funds.",
+                    "path": "/mcp/actions/search"
                 }
             }
         },
@@ -165,6 +248,39 @@ async def mcp_discovery():
         "contact": {
             "url": BASE_URL
         }
+    }
+
+
+@app.post("/mcp/actions/search")
+async def mcp_search_action(payload: SearchActionRequest):
+    """HTTP action endpoint that proxies to the unified search MCP tool."""
+
+    try:
+        result = await genel_arama(
+            arama_terimi=payload.query,
+            arama_kategorisi=payload.category,
+            sonuc_limiti=payload.limit,
+            takasbank_verisini_kullan=payload.use_takasbank,
+        )
+    except ToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive safeguard
+        logger.exception("Search action failed for query '%s'", payload.query)
+        raise HTTPException(status_code=500, detail="Search action failed.") from exc
+
+    items = _build_search_items(result)
+
+    return {
+        "query": payload.query,
+        "category": result.arama_kategorisi,
+        "summary": result.ozet,
+        "items": items,
+        "raw": result.model_dump(mode="json"),
+        "counts": {
+            "companies": result.sirket_sonuclari.sonuc_sayisi if result.sirket_sonuclari else 0,
+            "indices": result.endeks_sonuclari.sonuc_sayisi if result.endeks_sonuclari else 0,
+            "funds": result.fon_sonuclari.sonuc_sayisi if result.fon_sonuclari else 0,
+        },
     }
 
 # FastAPI status endpoint

@@ -2,6 +2,7 @@
 Main FastMCP server file for the Borsa Istanbul (BIST) data service.
 This version uses KAP for company search and yfinance for all financial data.
 """
+import inspect
 import logging
 import os
 import ssl
@@ -248,10 +249,18 @@ async def genel_arama(
 
     if kategori in ("auto", "fund"):
         try:
+            fund_kwargs: dict[str, Any] = {"limit": sonuc_limiti}
+            try:
+                signature = inspect.signature(borsa_client.search_funds)
+            except (TypeError, ValueError):
+                signature = None
+
+            if signature and "use_takasbank" in signature.parameters:
+                fund_kwargs["use_takasbank"] = takasbank_verisini_kullan
+
             fund_result = await borsa_client.search_funds(
                 arama_terimi,
-                limit=sonuc_limiti,
-                use_takasbank=takasbank_verisini_kullan,
+                **fund_kwargs,
             )
             if fund_result.error_message:
                 fon_sonuclari = fund_result
