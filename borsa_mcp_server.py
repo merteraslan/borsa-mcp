@@ -6,7 +6,19 @@ import logging
 import os
 import ssl
 from datetime import datetime
-from typing import Annotated, Any, Dict, List, Literal, Optional, TypeVar
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Self,
+    Sequence,
+    TypeVar,
+    runtime_checkable,
+)
 
 import urllib3
 from fastmcp import FastMCP
@@ -94,7 +106,19 @@ app = FastMCP(
 
 borsa_client = BorsaApiClient()
 
-SearchResultModel = TypeVar("SearchResultModel", bound=BaseModel)
+@runtime_checkable
+class SupportsListResult(Protocol):
+    """Protocol describing list-based search result models used for trimming."""
+
+    sonuclar: Sequence[Any]
+    sonuc_sayisi: Optional[int]
+    error_message: Optional[str]
+
+    def model_copy(self, *, update: Optional[Dict[str, Any]] = None) -> Self:
+        ...
+
+
+SearchResultModel = TypeVar("SearchResultModel", bound=SupportsListResult)
 
 
 def _trim_list_result(
@@ -105,10 +129,10 @@ def _trim_list_result(
 ) -> tuple[SearchResultModel, str]:
     """Trim list-based KAP search results and create a summary snippet."""
 
-    if not hasattr(result, "sonuclar"):
+    if not isinstance(result, SupportsListResult):
         raise TypeError(
-            f"Expected search result model with 'sonuclar' attribute, "
-            f"but {type(result).__name__} does not have this attribute."
+            "Expected search result model implementing SupportsListResult protocol, "
+            f"but received instance of {type(result).__name__}."
         )
 
     items = result.sonuclar
