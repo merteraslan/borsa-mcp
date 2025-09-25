@@ -129,12 +129,6 @@ def _trim_list_result(
 ) -> tuple[SearchResultModel, str]:
     """Trim list-based KAP search results and create a summary snippet."""
 
-    if not isinstance(result, SupportsListResult):
-        raise TypeError(
-            f"Expected search result model implementing SupportsListResult protocol, "
-            f"but received instance of {type(result).__name__}."
-        )
-
     items = result.sonuclar
     total = len(items)
 
