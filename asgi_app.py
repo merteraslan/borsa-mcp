@@ -12,17 +12,101 @@ Usage:
 import os
 import logging
 import json
-from fastapi import FastAPI, Request
+from typing import Any, Dict, List
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
+from fastmcp.exceptions import ToolError
+from pydantic import BaseModel, Field
 
 # Import the MCP server
-from borsa_mcp_server import app as mcp_server
+from borsa_mcp_server import (
+    FundCategoryLiteral,
+    SearchCategoryLiteral,
+    app as mcp_server,
+    genel_arama,
+)
+from models import GenelAramaSonucu
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Pydantic model and helper utilities for MCP search action responses
+class SearchActionRequest(BaseModel):
+    query: str = Field(..., min_length=2, description="Search query text.")
+    category: SearchCategoryLiteral = Field(
+        "auto",
+        description="Optional scope limiter for the search (company, index, fund, auto).",
+    )
+    limit: int = Field(10, ge=1, le=50, description="Maximum results per group.")
+    fund_category: FundCategoryLiteral = Field(
+        "all",
+        description="Optional TEFAS fund category filter forwarded to the unified search tool.",
+    )
+
+
+def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
+    """Flatten grouped search results into MCP search action items."""
+
+    items: List[Dict[str, Any]] = []
+
+    if result.sirket_sonuclari and result.sirket_sonuclari.sonuclar:
+        for company in result.sirket_sonuclari.sonuclar:
+            items.append(
+                {
+                    "id": f"company:{company.ticker_kodu}",
+                    "title": f"{company.sirket_adi} ({company.ticker_kodu})",
+                    "type": "company",
+                    "url": f"https://www.kap.org.tr/tr/Company/Detail/{company.ticker_kodu}",
+                    "summary": f"{company.sirket_adi} - {company.sehir}",
+                    "metadata": {
+                        "ticker": company.ticker_kodu,
+                        "city": company.sehir,
+                        "source": "kap",
+                    },
+                }
+            )
+
+    if result.endeks_sonuclari and result.endeks_sonuclari.sonuclar:
+        for index in result.endeks_sonuclari.sonuclar:
+            items.append(
+                {
+                    "id": f"index:{index.endeks_kodu}",
+                    "title": f"{index.endeks_adi} ({index.endeks_kodu})",
+                    "type": "index",
+                    "url": "https://www.kap.org.tr/tr/Endeksler",
+                    "summary": index.endeks_adi,
+                    "metadata": {
+                        "code": index.endeks_kodu,
+                        "source": "kap",
+                    },
+                }
+            )
+
+    if result.fon_sonuclari and result.fon_sonuclari.sonuclar:
+        for fund in result.fon_sonuclari.sonuclar:
+            items.append(
+                {
+                    "id": f"fund:{fund.fon_kodu}",
+                    "title": f"{fund.fon_adi} ({fund.fon_kodu})",
+                    "type": "fund",
+                    "url": f"https://www.tefas.gov.tr/FonAnaliz.aspx?FonKod={fund.fon_kodu}",
+                    "summary": fund.fon_turu or "TEFAS investment fund",
+                    "metadata": {
+                        "code": fund.fon_kodu,
+                        "fund_type": fund.fon_turu,
+                        "manager": fund.yonetici,
+                        "risk": fund.risk_degeri,
+                        # 'veri_kaynak' may be missing if the upstream payload omits the field.
+                        "source": getattr(fund, "veri_kaynak", "tefas") or "tefas",
+                    },
+                }
+            )
+
+    return items
 
 # Base URL configuration
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
@@ -125,40 +209,91 @@ async def root():
         "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40
     }
 
-# Standard well-known discovery endpoint
-@app.get("/.well-known/mcp")
-async def well_known_mcp():
-    """Standard MCP discovery endpoint"""
-    return {
-        "mcp_server": {
-            "name": "Borsa MCP Server",
-            "version": "0.1.0",
-            "endpoint": f"{BASE_URL}/mcp",
-            "capabilities": ["tools", "resources"],
-            "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40
-        }
-    }
+# Standardized MCP discovery payload builder so all endpoints share the same schema
+def _build_discovery_payload() -> Dict[str, Any]:
+    """Create an MCP discovery payload that follows the HTTP transport specification."""
 
-# MCP Discovery endpoint for ChatGPT integration
-@app.get("/mcp/discovery")
-async def mcp_discovery():
-    """MCP Discovery endpoint for ChatGPT and other MCP clients"""
+    base_endpoint = f"{BASE_URL.rstrip('/')}/mcp"
+    search_schema = SearchActionRequest.model_json_schema()
+
     return {
         "name": "Borsa MCP Server",
         "description": "MCP server for Istanbul Stock Exchange (BIST) and cryptocurrency data",
         "version": "0.1.0",
         "protocol": "mcp",
-        "transport": "http",
-        "endpoint": "/mcp",
+        "transport": {
+            "type": "http",
+            "endpoint": base_endpoint,
+        },
         "capabilities": {
             "tools": True,
             "resources": True,
-            "prompts": False
+            "prompts": False,
+            "actions": True,
         },
+        "actions": [
+            {
+                "name": "search",
+                "description": "Unified search across BIST companies, indices, and TEFAS funds.",
+                "path": "/mcp/actions/search",
+                "input_schema": search_schema,
+            }
+        ],
         "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40,
-        "contact": {
-            "url": BASE_URL
-        }
+        "contact": {"url": BASE_URL},
+    }
+
+
+# Standard well-known discovery endpoint
+@app.get("/.well-known/mcp")
+async def well_known_mcp():
+    """Standard MCP discovery endpoint"""
+    return {"mcp_server": _build_discovery_payload()}
+
+
+@app.get("/.well-known/mcp.json")
+async def well_known_mcp_json():
+    """Compatibility endpoint using the canonical `.json` suffix expected by some clients."""
+    return _build_discovery_payload()
+
+
+# MCP Discovery endpoint for ChatGPT integration
+@app.get("/mcp/discovery")
+async def mcp_discovery():
+    """MCP Discovery endpoint for ChatGPT and other MCP clients"""
+    return _build_discovery_payload()
+
+
+@app.post("/mcp/actions/search")
+async def mcp_search_action(payload: SearchActionRequest):
+    """HTTP action endpoint that proxies to the unified search MCP tool."""
+
+    try:
+        result = await genel_arama(
+            arama_terimi=payload.query,
+            arama_kategorisi=payload.category,
+            sonuc_limiti=payload.limit,
+            fon_kategorisi=payload.fund_category,
+        )
+    except ToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        logger.exception("Invalid search parameters for query '%s'", payload.query)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    items = _build_search_items(result)
+
+    return {
+        "query": payload.query,
+        "category": result.arama_kategorisi,
+        "summary": result.ozet,
+        "items": items,
+        "raw": result.model_dump(mode="json"),
+        "counts": {
+            "companies": result.sirket_sonuclari.sonuc_sayisi if result.sirket_sonuclari else 0,
+            "indices": result.endeks_sonuclari.sonuc_sayisi if result.endeks_sonuclari else 0,
+            "funds": result.fon_sonuclari.sonuc_sayisi if result.fon_sonuclari else 0,
+        },
     }
 
 # FastAPI status endpoint

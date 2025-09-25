@@ -6,12 +6,12 @@ import logging
 import os
 import ssl
 from datetime import datetime
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, TypeVar
 
 import urllib3
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from borsa_client import BorsaApiClient
 from models import (
@@ -37,6 +37,7 @@ from models import (
     FonPerformansSonucu,
     FonPortfoySonucu,
     HizliBilgiSonucu,
+    GenelAramaSonucu,
     KapHaberDetayi,
     KapHaberleriSonucu,
     KatilimFinansUygunlukSonucu,
@@ -93,6 +94,41 @@ app = FastMCP(
 
 borsa_client = BorsaApiClient()
 
+SearchResultModel = TypeVar("SearchResultModel", bound=BaseModel)
+
+
+def _trim_list_result(
+    result: SearchResultModel,
+    limit: int,
+    label: str,
+    empty_message: str,
+) -> tuple[SearchResultModel, str]:
+    """Trim list-based KAP search results and create a summary snippet."""
+
+    items = getattr(result, "sonuclar", [])
+    total = len(items)
+
+    if total > 0:
+        if total > limit:
+            trimmed_items = list(items[:limit])
+            trimmed_result = result.model_copy(
+                update={
+                    "sonuclar": trimmed_items,
+                    "sonuc_sayisi": len(trimmed_items),
+                }
+            )
+            return (
+                trimmed_result,
+                f"{label}: ilk {len(trimmed_items)}/{total} sonuç listelendi.",
+            )
+
+        return result, f"{label}: {total} sonuç bulundu."
+
+    if getattr(result, "error_message", None):
+        return result, f"{label} aramasında hata oluştu."
+
+    return result, empty_message
+
 # Define Literal types for yfinance periods to ensure clean schema generation
 YFinancePeriodLiteral = Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "ytd", "max"]
 StatementPeriodLiteral = Literal["annual", "quarterly"]
@@ -100,6 +136,164 @@ FundCategoryLiteral = Literal["all", "debt", "variable", "basket", "guaranteed",
 CryptoCurrencyLiteral = Literal["TRY", "USDT", "BTC", "ETH", "USD", "EUR"]
 DovizcomAssetLiteral = Literal["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "gram-altin", "gumus", "ons", "XAG-USD", "XPT-USD", "XPD-USD", "BRENT", "WTI", "diesel", "gasoline", "lpg"]
 ResponseFormatLiteral = Literal["full", "compact"]
+SearchCategoryLiteral = Literal["auto", "company", "index", "fund"]
+
+@app.tool(
+    name="search",
+    description=(
+        "Unified search across BIST companies, indices, and TEFAS funds. "
+        "Use this entry point when you are unsure which specific search tool to call."
+    ),
+    tags=["search", "stocks", "indices", "funds", "readonly"]
+)
+async def genel_arama(
+    arama_terimi: Annotated[
+        str,
+        Field(
+            description=(
+                "Search term for companies, indices, or funds. Works with Turkish characters "
+                "and partial matches (e.g. 'Garanti', 'altın', 'XU100')."
+            ),
+            min_length=2,
+            examples=["Garanti", "XU100", "altın"],
+        ),
+    ],
+    arama_kategorisi: Annotated[
+        SearchCategoryLiteral,
+        Field(
+            description=(
+                "Restrict search to a specific domain. 'auto' searches companies, indices, and funds."
+            ),
+            default="auto",
+        ),
+    ] = "auto",
+    sonuc_limiti: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=50,
+            description="Maximum number of results to return per domain.",
+            default=10,
+        ),
+    ] = 10,
+    fon_kategorisi: Annotated[
+        FundCategoryLiteral,
+        Field(
+            description=(
+                "Optional TEFAS fund category filter. Defaults to 'all' so the unified "
+                "search spans every fund type unless you explicitly narrow it."
+            ),
+            default="all",
+        ),
+    ] = "all",
+) -> GenelAramaSonucu:
+    """General search helper used by ChatGPT to discover relevant tickers or funds."""
+
+    logger.info(
+        "Tool 'search' called with query=%r, category=%s, limit=%s",
+        arama_terimi,
+        arama_kategorisi,
+        sonuc_limiti,
+    )
+
+    if not arama_terimi or len(arama_terimi.strip()) < 2:
+        raise ToolError("You must enter at least 2 characters to search.")
+
+    arama_terimi = arama_terimi.strip()
+
+    sirket_sonuclari = None
+    endeks_sonuclari = None
+    fon_sonuclari = None
+    uygulanan_fon_kategorisi: Optional[str] = None
+    ozet_bolumleri: list[str] = []
+
+    if arama_kategorisi in ("auto", "company"):
+        try:
+            company_result = await borsa_client.search_companies_from_kap(arama_terimi)
+            sirket_sonuclari, summary = _trim_list_result(
+                company_result,
+                sonuc_limiti,
+                "Şirketler",
+                "Şirket sonucu bulunamadı.",
+            )
+            ozet_bolumleri.append(summary)
+        except Exception as exc:
+            logger.exception("Error in unified company search for query '%s'", arama_terimi)
+            sirket_sonuclari = SirketAramaSonucu(
+                arama_terimi=arama_terimi,
+                sonuclar=[],
+                sonuc_sayisi=0,
+                error_message=f"An unexpected error occurred: {str(exc)}",
+            )
+            ozet_bolumleri.append("Şirket araması başarısız oldu.")
+
+    if arama_kategorisi in ("auto", "index"):
+        try:
+            index_result = await borsa_client.search_indices_from_kap(arama_terimi)
+            endeks_sonuclari, summary = _trim_list_result(
+                index_result,
+                sonuc_limiti,
+                "Endeksler",
+                "Endeks sonucu bulunamadı.",
+            )
+            ozet_bolumleri.append(summary)
+        except Exception as exc:
+            logger.exception("Error in unified index search for query '%s'", arama_terimi)
+            endeks_sonuclari = EndeksKoduAramaSonucu(
+                arama_terimi=arama_terimi,
+                sonuclar=[],
+                sonuc_sayisi=0,
+                error_message=f"An unexpected error occurred: {str(exc)}",
+            )
+            ozet_bolumleri.append("Endeks araması başarısız oldu.")
+
+    if arama_kategorisi in ("auto", "fund"):
+        try:
+            fund_result = await search_funds(
+                arama_terimi,
+                limit=sonuc_limiti,
+                fund_category=fon_kategorisi,
+            )
+            uygulanan_fon_kategorisi = fon_kategorisi
+            if fund_result.error_message:
+                fon_sonuclari = fund_result
+                ozet_bolumleri.append("Fon aramasında hata oluştu.")
+            elif fund_result.sonuc_sayisi > 0:
+                fon_sonuclari = fund_result
+                kategori_notu = (
+                    f" (kategori: {fon_kategorisi})" if fon_kategorisi != "all" else ""
+                )
+                ozet_bolumleri.append(
+                    f"Fonlar: {fund_result.sonuc_sayisi} sonuç döndü{kategori_notu}."
+                )
+            else:
+                fon_sonuclari = fund_result
+                kategori_notu = (
+                    f" (kategori: {fon_kategorisi})" if fon_kategorisi != "all" else ""
+                )
+                ozet_bolumleri.append(f"Fon sonucu bulunamadı{kategori_notu}.")
+        except Exception as exc:
+            logger.exception("Error in unified fund search for query '%s'", arama_terimi)
+            fon_sonuclari = FonAramaSonucu(
+                arama_terimi=arama_terimi,
+                sonuclar=[],
+                sonuc_sayisi=0,
+                error_message=f"An unexpected error occurred: {str(exc)}",
+            )
+            ozet_bolumleri.append("Fon araması başarısız oldu.")
+
+    ozet = " ".join(ozet_bolumleri)
+
+    return GenelAramaSonucu(
+        arama_terimi=arama_terimi,
+        arama_kategorisi=arama_kategorisi,
+        sirket_sonuclari=sirket_sonuclari,
+        endeks_sonuclari=endeks_sonuclari,
+        fon_sonuclari=fon_sonuclari,
+        fon_kategorisi=uygulanan_fon_kategorisi,
+        ozet=ozet,
+    )
+
 
 @app.tool(
     description="BIST STOCKS: Search companies by name to find ticker codes. STOCKS ONLY - use get_kripto_exchange_info for crypto.",
