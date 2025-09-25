@@ -57,7 +57,9 @@ FastAPI katmanı, MCP istemcilerinin HTTP üzerinden otomatik keşif yapabilmesi
 | `/mcp/discovery` | FastMCP discovery helper'ı ile aynı içeriği döner.
 | `/mcp/actions/search` | HTTP tabanlı MCP `search` action tetikleyicisi. | 
 
-`/mcp/actions/search` endpoint'i, `query`, `category` (`auto`, `company`, `index`, `fund`) ve `limit` alanlarını kabul eder. Yanıt, MCP protokolünün beklediği `items` listesini döndürür ve şirket/endeks/fon sonuçlarının tümünü tek bir düz listede toplar. Bu sayede ChatGPT gibi istemciler ek yapılandırma gerektirmeden "search action" gerekliliklerini karşılayabilir.
+`/mcp/actions/search` endpoint'i, `query`, `category` (`auto`, `company`, `index`, `fund`), isteğe bağlı `fund_category` (ör. `equity`, `precious_metals`, `money_market`) ve `limit` alanlarını kabul eder. Yanıt, MCP protokolünün beklediği `items` listesini döndürür ve şirket/endeks/fon sonuçlarının tümünü tek bir düz listede toplar. Bu sayede ChatGPT gibi istemciler ek yapılandırma gerektirmeden "search action" gerekliliklerini karşılayabilir.
+
+FastMCP içindeki birleşik `search` aracı aynı filtreyi `fon_kategorisi` parametresi üzerinden destekler. Varsayılan değer `all` olup, sadece belirli bir kategoriye odaklanmak istediğinizde bu parametreyi (`equity`, `mixed`, `participation` vb.) değiştirebilirsiniz.
 
 ## 📑 **İçindekiler**
 

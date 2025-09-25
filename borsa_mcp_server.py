@@ -141,6 +141,16 @@ async def genel_arama(
             default=10,
         ),
     ] = 10,
+    fon_kategorisi: Annotated[
+        FundCategoryLiteral,
+        Field(
+            description=(
+                "Optional TEFAS fund category filter. Defaults to 'all' so the unified "
+                "search spans every fund type unless you explicitly narrow it."
+            ),
+            default="all",
+        ),
+    ] = "all",
 ) -> GenelAramaSonucu:
     """General search helper used by ChatGPT to discover relevant tickers or funds."""
 
@@ -159,6 +169,7 @@ async def genel_arama(
     sirket_sonuclari = None
     endeks_sonuclari = None
     fon_sonuclari = None
+    uygulanan_fon_kategorisi: Optional[str] = None
     ozet_bolumleri: list[str] = []
 
     if arama_kategorisi in ("auto", "company"):
@@ -239,19 +250,26 @@ async def genel_arama(
             fund_result = await search_funds(
                 arama_terimi,
                 limit=sonuc_limiti,
-                fund_category="all",  # Unified discovery always surfaces funds across categories.
+                fund_category=fon_kategorisi,
             )
+            uygulanan_fon_kategorisi = fon_kategorisi
             if fund_result.error_message:
                 fon_sonuclari = fund_result
                 ozet_bolumleri.append("Fon aramasında hata oluştu.")
             elif fund_result.sonuc_sayisi > 0:
                 fon_sonuclari = fund_result
+                kategori_notu = (
+                    f" (kategori: {fon_kategorisi})" if fon_kategorisi != "all" else ""
+                )
                 ozet_bolumleri.append(
-                    f"Fonlar: {fund_result.sonuc_sayisi} sonuç döndü."
+                    f"Fonlar: {fund_result.sonuc_sayisi} sonuç döndü{kategori_notu}."
                 )
             else:
                 fon_sonuclari = fund_result
-                ozet_bolumleri.append("Fon sonucu bulunamadı.")
+                kategori_notu = (
+                    f" (kategori: {fon_kategorisi})" if fon_kategorisi != "all" else ""
+                )
+                ozet_bolumleri.append(f"Fon sonucu bulunamadı{kategori_notu}.")
         except Exception as exc:
             logger.exception("Error in unified fund search for query '%s'", arama_terimi)
             fon_sonuclari = FonAramaSonucu(
@@ -273,6 +291,7 @@ async def genel_arama(
         sirket_sonuclari=sirket_sonuclari,
         endeks_sonuclari=endeks_sonuclari,
         fon_sonuclari=fon_sonuclari,
+        fon_kategorisi=uygulanan_fon_kategorisi,
         ozet=ozet,
     )
 

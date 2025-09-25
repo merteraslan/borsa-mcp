@@ -14,6 +14,10 @@ class GenelAramaSonucu(BaseModel):
     arama_kategorisi: Literal["auto", "company", "index", "fund"] = Field(
         description="Specifies which data domain was searched. 'auto' searches all domains."
     )
+    fon_kategorisi: Optional[str] = Field(
+        None,
+        description="Fund category filter forwarded to TEFAS search when provided.",
+    )
     sirket_sonuclari: Optional[SirketAramaSonucu] = Field(
         None,
         description="Matching BIST company results when company search is requested.",

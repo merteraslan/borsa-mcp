@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 # Import the MCP server
 from borsa_mcp_server import (
+    FundCategoryLiteral,
     SearchCategoryLiteral,
     app as mcp_server,
     genel_arama,
@@ -41,6 +42,10 @@ class SearchActionRequest(BaseModel):
         description="Optional scope limiter for the search (company, index, fund, auto).",
     )
     limit: int = Field(10, ge=1, le=50, description="Maximum results per group.")
+    fund_category: FundCategoryLiteral = Field(
+        "all",
+        description="Optional TEFAS fund category filter forwarded to the unified search tool.",
+    )
 
 
 def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
@@ -95,7 +100,8 @@ def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
                         "fund_type": fund.fon_turu,
                         "manager": fund.yonetici,
                         "risk": fund.risk_degeri,
-                        "source": getattr(fund, "veri_kaynak", None) or "tefas",
+                        # 'veri_kaynak' may be missing if the upstream payload omits the field.
+                        "source": fund.veri_kaynak if hasattr(fund, "veri_kaynak") and fund.veri_kaynak else "tefas",
                     },
                 }
             )
@@ -267,6 +273,7 @@ async def mcp_search_action(payload: SearchActionRequest):
             arama_terimi=payload.query,
             arama_kategorisi=payload.category,
             sonuc_limiti=payload.limit,
+            fon_kategorisi=payload.fund_category,
         )
     except ToolError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
