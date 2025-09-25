@@ -109,6 +109,9 @@ from .regulation_models import (
     FonMevzuatSonucu
 )
 
+# General search models
+from .search_models import GenelAramaSonucu
+
 # Export all models for backward compatibility
 __all__ = [
     # Base enums
@@ -169,7 +172,10 @@ __all__ = [
     
     # Economic calendar models
     "EkonomikOlayDetayi", "EkonomikOlay", "EkonomikTakvimSonucu",
-    
+
     # Fund regulation models
-    "FonMevzuatSonucu"
+    "FonMevzuatSonucu",
+
+    # General search models
+    "GenelAramaSonucu",
 ]

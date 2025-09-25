@@ -21,6 +21,7 @@ Bu proje, Borsa İstanbul (BIST) verilerine, Türk yatırım fonları verilerine
 🎯 **Temel Özellikler**
 
 * Borsa İstanbul (BIST), Türk yatırım fonları, global kripto para verileri ve döviz/emtia verilerine programatik erişim için kapsamlı bir MCP arayüzü.
+* Birleşik **`search`** MCP aracı ile şirket, endeks ve fon aramalarını tek bir çağrıda birleştirir.
 * **43 Araç** ile tam finansal analiz desteği:
     * **Şirket Arama:** 758 BIST şirketi arasında ticker kodu ve şirket adına göre arama (çoklu ticker desteği ile).
     * **Finansal Veriler:** Bilanço, kar-zarar, nakit akışı tabloları ve geçmiş OHLCV verileri.
@@ -45,6 +46,20 @@ Bu proje, Borsa İstanbul (BIST) verilerine, Türk yatırım fonları verilerine
 * **Hızlı İşleme:** Kısa araç açıklamaları ve LLM-dostu dokümantasyon ile optimize edilmiş performans.
 * Claude Desktop uygulaması ile kolay entegrasyon.
 * Borsa MCP, [5ire](https://5ire.app) gibi Claude Desktop haricindeki MCP istemcilerini de destekler.
+
+## 🔎 MCP HTTP Discovery & Search Action
+
+FastAPI katmanı, MCP istemcilerinin HTTP üzerinden otomatik keşif yapabilmesi ve birleşik aramayı tetikleyebilmesi için aşağıdaki uç noktaları sunar:
+
+| Endpoint | Açıklama |
+| --- | --- |
+| `/.well-known/mcp` ve `/.well-known/mcp.json` | Standart MCP discovery dökümü (JSON).
+| `/mcp/discovery` | FastMCP discovery helper'ı ile aynı içeriği döner.
+| `/mcp/actions/search` | HTTP tabanlı MCP `search` action tetikleyicisi. | 
+
+`/mcp/actions/search` endpoint'i, `query`, `category` (`auto`, `company`, `index`, `fund`), isteğe bağlı `fund_category` (ör. `equity`, `precious_metals`, `money_market`) ve `limit` alanlarını kabul eder. Yanıt, MCP protokolünün beklediği `items` listesini döndürür ve şirket/endeks/fon sonuçlarının tümünü tek bir düz listede toplar. Bu sayede ChatGPT gibi istemciler ek yapılandırma gerektirmeden "search action" gerekliliklerini karşılayabilir.
+
+FastMCP içindeki birleşik `search` aracı aynı filtreyi `fon_kategorisi` parametresi üzerinden destekler. Varsayılan değer `all` olup, sadece belirli bir kategoriye odaklanmak istediğinizde bu parametreyi (`equity`, `mixed`, `participation` vb.) değiştirebilirsiniz.
 
 ## 📑 **İçindekiler**
 
@@ -157,6 +172,7 @@ Bu bölüm, Borsa MCP aracını 5ire gibi Claude Desktop dışındaki MCP istemc
 Bu FastMCP sunucusu LLM modelleri için aşağıdaki araçları sunar:
 
 ### Temel Şirket & Finansal Veriler
+* **`search`**: Şirket, endeks ve fon aramalarını otomatik olarak kategorize eden birleşik arama aracı.
 * **`find_ticker_code`**: Güncel BIST şirketleri arasında ticker kodu arama.
 * **`get_sirket_profili`**: Detaylı şirket profili.
 * **`get_bilanco`**: Bilanço verileri (yıllık/çeyreklik).
