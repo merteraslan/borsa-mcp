@@ -129,13 +129,9 @@ def _trim_list_result(
 ) -> tuple[SearchResultModel, str]:
     """Trim list-based KAP search results and create a summary snippet."""
 
-    if not (
-        hasattr(result, "sonuclar")
-        and hasattr(result, "model_copy")
-        and callable(getattr(result, "model_copy", None))
-    ):
+    if not isinstance(result, SupportsListResult):
         raise TypeError(
-            "Expected search result model with required attributes ('sonuclar', 'model_copy'), "
+            "Expected search result model implementing SupportsListResult with 'sonuclar' support, "
             f"but received instance of {type(result).__name__}."
         )
 
