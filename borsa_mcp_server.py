@@ -107,7 +107,8 @@ def _trim_list_result(
 
     if not hasattr(result, "sonuclar"):
         raise TypeError(
-            f"{type(result).__name__} does not expose required 'sonuclar' attribute"
+            f"Expected search result model with 'sonuclar' attribute, "
+            f"but {type(result).__name__} does not have this attribute."
         )
 
     items = result.sonuclar
@@ -115,7 +116,7 @@ def _trim_list_result(
 
     if total > 0:
         if total > limit:
-            trimmed_items = list(items[:limit])
+            trimmed_items = items[:limit]
             trimmed_result = result.model_copy(
                 update={
                     "sonuclar": trimmed_items,
