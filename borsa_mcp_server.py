@@ -144,9 +144,6 @@ async def genel_arama(
 ) -> GenelAramaSonucu:
     """General search helper used by ChatGPT to discover relevant tickers or funds."""
 
-    if not arama_kategorisi:
-        arama_kategorisi = "auto"
-
     logger.info(
         "Tool 'search' called with query=%r, category=%s, limit=%s",
         arama_terimi,
