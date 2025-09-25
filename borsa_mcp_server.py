@@ -166,6 +166,22 @@ async def genel_arama(
 
     arama_terimi = arama_terimi.strip()
 
+    allowed_categories = {"auto", "company", "index", "fund"}
+    if arama_kategorisi not in allowed_categories:
+        logger.warning(
+            "Unsupported search category '%s' requested for unified search.",
+            arama_kategorisi,
+        )
+        return GenelAramaSonucu(
+            arama_terimi=arama_terimi,
+            arama_kategorisi=arama_kategorisi,
+            sirket_sonuclari=None,
+            endeks_sonuclari=None,
+            fon_sonuclari=None,
+            fon_kategorisi=None,
+            ozet="Arama yapılacak kategori bulunamadı.",
+        )
+
     sirket_sonuclari = None
     endeks_sonuclari = None
     fon_sonuclari = None
@@ -280,10 +296,7 @@ async def genel_arama(
             )
             ozet_bolumleri.append("Fon araması başarısız oldu.")
 
-    if not ozet_bolumleri:
-        ozet = "Arama yapılacak kategori bulunamadı."
-    else:
-        ozet = " ".join(ozet_bolumleri)
+    ozet = " ".join(ozet_bolumleri)
 
     return GenelAramaSonucu(
         arama_terimi=arama_terimi,

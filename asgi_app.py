@@ -101,7 +101,7 @@ def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
                         "manager": fund.yonetici,
                         "risk": fund.risk_degeri,
                         # 'veri_kaynak' may be missing if the upstream payload omits the field.
-                        "source": fund.veri_kaynak if hasattr(fund, "veri_kaynak") and fund.veri_kaynak else "tefas",
+                        "source": getattr(fund, "veri_kaynak", "tefas") or "tefas",
                     },
                 }
             )
