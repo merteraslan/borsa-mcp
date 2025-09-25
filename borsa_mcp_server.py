@@ -2,7 +2,6 @@
 Main FastMCP server file for the Borsa Istanbul (BIST) data service.
 This version uses KAP for company search and yfinance for all financial data.
 """
-import inspect
 import logging
 import os
 import ssl
@@ -142,25 +141,14 @@ async def genel_arama(
             default=10,
         ),
     ] = 10,
-    takasbank_verisini_kullan: Annotated[
-        bool,
-        Field(
-            description=(
-                "Fund search data source. True uses Takasbank cached dataset (faster, defaults). "
-                "False switches to live TEFAS API advanced search."
-            ),
-            default=True,
-        ),
-    ] = True,
 ) -> GenelAramaSonucu:
     """General search helper used by ChatGPT to discover relevant tickers or funds."""
 
     logger.info(
-        "Tool 'search' called with query=%r, category=%s, limit=%s, takasbank=%s",
+        "Tool 'search' called with query=%r, category=%s, limit=%s",
         arama_terimi,
         arama_kategorisi,
         sonuc_limiti,
-        takasbank_verisini_kullan,
     )
 
     if not arama_terimi or len(arama_terimi.strip()) < 2:
@@ -249,18 +237,9 @@ async def genel_arama(
 
     if kategori in ("auto", "fund"):
         try:
-            fund_kwargs: dict[str, Any] = {"limit": sonuc_limiti}
-            try:
-                signature = inspect.signature(borsa_client.search_funds)
-            except (TypeError, ValueError):
-                signature = None
-
-            if signature and "use_takasbank" in signature.parameters:
-                fund_kwargs["use_takasbank"] = takasbank_verisini_kullan
-
             fund_result = await borsa_client.search_funds(
                 arama_terimi,
-                **fund_kwargs,
+                limit=sonuc_limiti,
             )
             if fund_result.error_message:
                 fon_sonuclari = fund_result

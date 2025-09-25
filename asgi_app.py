@@ -41,10 +41,6 @@ class SearchActionRequest(BaseModel):
         description="Optional scope limiter for the search (company, index, fund, auto).",
     )
     limit: int = Field(10, ge=1, le=50, description="Maximum results per group.")
-    use_takasbank: bool = Field(
-        True,
-        description="Whether to use the cached Takasbank dataset for fund lookups when available.",
-    )
 
 
 def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
@@ -93,13 +89,15 @@ def _build_search_items(result: GenelAramaSonucu) -> List[Dict[str, Any]]:
                     "title": f"{fund.fon_adi} ({fund.fon_kodu})",
                     "type": "fund",
                     "url": f"https://www.tefas.gov.tr/FonAnaliz.aspx?FonKod={fund.fon_kodu}",
-                    "summary": (fund.fon_turu or "") or "TEFAS investment fund",
+                    "summary": fund.fon_turu or "TEFAS investment fund",
                     "metadata": {
                         "code": fund.fon_kodu,
                         "fund_type": fund.fon_turu,
                         "manager": fund.yonetici,
                         "risk": fund.risk_degeri,
-                        "source": getattr(fund, "veri_kaynak", None) or "tefas",
+                        "source": fund.veri_kaynak
+                        if hasattr(fund, "veri_kaynak") and fund.veri_kaynak is not None
+                        else "tefas",
                     },
                 }
             )
@@ -271,7 +269,6 @@ async def mcp_search_action(payload: SearchActionRequest):
             arama_terimi=payload.query,
             arama_kategorisi=payload.category,
             sonuc_limiti=payload.limit,
-            takasbank_verisini_kullan=payload.use_takasbank,
         )
     except ToolError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
