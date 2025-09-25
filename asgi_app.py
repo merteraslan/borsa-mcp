@@ -207,48 +207,59 @@ async def root():
         "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40
     }
 
-# Standard well-known discovery endpoint
-@app.get("/.well-known/mcp")
-async def well_known_mcp():
-    """Standard MCP discovery endpoint"""
-    return {
-        "mcp_server": {
-            "name": "Borsa MCP Server",
-            "version": "0.1.0",
-            "endpoint": f"{BASE_URL}/mcp",
-            "capabilities": ["tools", "resources", "actions"],
-            "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40
-        }
-    }
+# Standardized MCP discovery payload builder so all endpoints share the same schema
+def _build_discovery_payload() -> Dict[str, Any]:
+    """Create an MCP discovery payload that follows the HTTP transport specification."""
 
-# MCP Discovery endpoint for ChatGPT integration
-@app.get("/mcp/discovery")
-async def mcp_discovery():
-    """MCP Discovery endpoint for ChatGPT and other MCP clients"""
+    base_endpoint = f"{BASE_URL.rstrip('/')}/mcp"
+    search_schema = SearchActionRequest.model_json_schema()
+
     return {
         "name": "Borsa MCP Server",
         "description": "MCP server for Istanbul Stock Exchange (BIST) and cryptocurrency data",
         "version": "0.1.0",
         "protocol": "mcp",
-        "transport": "http",
-        "endpoint": "/mcp",
+        "transport": {
+            "type": "http",
+            "endpoint": base_endpoint,
+        },
         "capabilities": {
             "tools": True,
             "resources": True,
             "prompts": False,
-            "actions": {
-                "search": {
-                    "tool": "search",
-                    "description": "Unified search across BIST companies, indices, and TEFAS funds.",
-                    "path": "/mcp/actions/search"
-                }
-            }
+            "actions": True,
         },
+        "actions": [
+            {
+                "name": "search",
+                "description": "Unified search across BIST companies, indices, and TEFAS funds.",
+                "path": "/mcp/actions/search",
+                "input_schema": search_schema,
+            }
+        ],
         "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40,
-        "contact": {
-            "url": BASE_URL
-        }
+        "contact": {"url": BASE_URL},
     }
+
+
+# Standard well-known discovery endpoint
+@app.get("/.well-known/mcp")
+async def well_known_mcp():
+    """Standard MCP discovery endpoint"""
+    return {"mcp_server": _build_discovery_payload()}
+
+
+@app.get("/.well-known/mcp.json")
+async def well_known_mcp_json():
+    """Compatibility endpoint using the canonical `.json` suffix expected by some clients."""
+    return _build_discovery_payload()
+
+
+# MCP Discovery endpoint for ChatGPT integration
+@app.get("/mcp/discovery")
+async def mcp_discovery():
+    """MCP Discovery endpoint for ChatGPT and other MCP clients"""
+    return _build_discovery_payload()
 
 
 @app.post("/mcp/actions/search")
