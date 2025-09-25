@@ -270,9 +270,9 @@ async def mcp_search_action(payload: SearchActionRequest):
         )
     except ToolError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # pragma: no cover - defensive safeguard
-        logger.exception("Search action failed for query '%s'", payload.query)
-        raise HTTPException(status_code=500, detail="Search action failed.") from exc
+    except (ValueError, TypeError) as exc:
+        logger.exception("Invalid search parameters for query '%s'", payload.query)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     items = _build_search_items(result)
 
