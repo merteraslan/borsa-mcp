@@ -236,9 +236,10 @@ async def genel_arama(
 
     if arama_kategorisi in ("auto", "fund"):
         try:
-            fund_result = await borsa_client.search_funds(
+            fund_result = await search_funds(
                 arama_terimi,
                 limit=sonuc_limiti,
+                fund_category="all",  # Unified discovery always surfaces funds across categories.
             )
             if fund_result.error_message:
                 fon_sonuclari = fund_result
