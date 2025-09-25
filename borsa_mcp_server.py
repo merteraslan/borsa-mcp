@@ -163,6 +163,64 @@ ResponseFormatLiteral = Literal["full", "compact"]
 SearchCategoryLiteral = Literal["auto", "company", "index", "fund"]
 
 @app.tool(
+    name="fetch",
+    description=(
+        "Fetch a single resource by identifier. Supported kinds: "
+        "'kap_news_detail' (URL), 'fund_detail' (fund code), 'profile' (ticker)."
+    ),
+    tags=["fetch", "readonly"],
+)
+async def fetch(
+    kind: Annotated[
+        Literal["kap_news_detail", "fund_detail", "profile"],
+        Field(description="Type of resource to fetch."),
+    ],
+    identifier: Annotated[
+        str,
+        Field(
+            description=(
+                "Identifier for the resource. Use the full URL for kap_news_detail, "
+                "fund code for fund_detail, and ticker for profile."
+            )
+        ),
+    ],
+    page: Annotated[
+        Optional[int],
+        Field(
+            default=None,
+            description="Page number for long KAP documents (applies to kap_news_detail only).",
+        ),
+    ] = None,
+) -> Any:
+    """Minimal fetch tool expected by MCP clients."""
+
+    resource_id = identifier.strip()
+    if not resource_id:
+        raise ToolError("identifier cannot be empty")
+
+    try:
+        if kind == "kap_news_detail":
+            page_number = page if page is not None else 1
+            if page_number < 1:
+                raise ToolError("page must be greater than or equal to 1")
+            result = await get_kap_haber_detayi(haber_url=resource_id, sayfa_numarasi=page_number)
+        elif kind == "fund_detail":
+            result = await get_fund_detail(fund_code=resource_id.upper(), include_price_history=False)
+        elif kind == "profile":
+            result = await get_sirket_profili(ticker_kodu=resource_id.upper(), mynet_detaylari=False, format="full")
+        else:  # pragma: no cover - Literal prevents this, safeguard for runtime
+            raise ToolError(f"Unsupported kind: {kind}")
+
+        if isinstance(result, BaseModel):
+            return result.model_dump()
+        return result
+    except ToolError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive catch
+        raise ToolError(f"fetch failed: {exc}") from exc
+
+
+@app.tool(
     name="search",
     description=(
         "Unified search across BIST companies, indices, and TEFAS funds. "
