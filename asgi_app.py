@@ -134,7 +134,7 @@ async def well_known_mcp():
             "name": "Borsa MCP Server",
             "version": "0.1.0",
             "endpoint": f"{BASE_URL}/mcp",
-            "capabilities": ["tools", "resources"],
+            "capabilities": ["tools", "resources", "actions"],
             "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40
         }
     }
@@ -153,7 +153,13 @@ async def mcp_discovery():
         "capabilities": {
             "tools": True,
             "resources": True,
-            "prompts": False
+            "prompts": False,
+            "actions": {
+                "search": {
+                    "tool": "search",
+                    "description": "Unified search across BIST companies, indices, and TEFAS funds."
+                }
+            }
         },
         "tools_count": len(mcp_server._tool_manager._tools) if hasattr(mcp_server, '_tool_manager') else 40,
         "contact": {

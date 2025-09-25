@@ -37,6 +37,7 @@ from models import (
     FonPerformansSonucu,
     FonPortfoySonucu,
     HizliBilgiSonucu,
+    GenelAramaSonucu,
     KapHaberDetayi,
     KapHaberleriSonucu,
     KatilimFinansUygunlukSonucu,
@@ -100,6 +101,193 @@ FundCategoryLiteral = Literal["all", "debt", "variable", "basket", "guaranteed",
 CryptoCurrencyLiteral = Literal["TRY", "USDT", "BTC", "ETH", "USD", "EUR"]
 DovizcomAssetLiteral = Literal["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "gram-altin", "gumus", "ons", "XAG-USD", "XPT-USD", "XPD-USD", "BRENT", "WTI", "diesel", "gasoline", "lpg"]
 ResponseFormatLiteral = Literal["full", "compact"]
+SearchCategoryLiteral = Literal["auto", "company", "index", "fund"]
+
+@app.tool(
+    name="search",
+    description=(
+        "Unified search across BIST companies, indices, and TEFAS funds. "
+        "Use this entry point when you are unsure which specific search tool to call."
+    ),
+    tags=["search", "stocks", "indices", "funds", "readonly"]
+)
+async def genel_arama(
+    arama_terimi: Annotated[
+        str,
+        Field(
+            description=(
+                "Search term for companies, indices, or funds. Works with Turkish characters "
+                "and partial matches (e.g. 'Garanti', 'altın', 'XU100')."
+            ),
+            min_length=2,
+            examples=["Garanti", "XU100", "altın"],
+        ),
+    ],
+    arama_kategorisi: Annotated[
+        SearchCategoryLiteral,
+        Field(
+            description=(
+                "Restrict search to a specific domain. 'auto' searches companies, indices, and funds."
+            ),
+            default="auto",
+        ),
+    ] = "auto",
+    sonuc_limiti: Annotated[
+        int,
+        Field(
+            ge=1,
+            le=50,
+            description="Maximum number of results to return per domain.",
+            default=10,
+        ),
+    ] = 10,
+    takasbank_verisini_kullan: Annotated[
+        bool,
+        Field(
+            description=(
+                "Fund search data source. True uses Takasbank cached dataset (faster, defaults). "
+                "False switches to live TEFAS API advanced search."
+            ),
+            default=True,
+        ),
+    ] = True,
+) -> GenelAramaSonucu:
+    """General search helper used by ChatGPT to discover relevant tickers or funds."""
+
+    logger.info(
+        "Tool 'search' called with query=%r, category=%s, limit=%s, takasbank=%s",
+        arama_terimi,
+        arama_kategorisi,
+        sonuc_limiti,
+        takasbank_verisini_kullan,
+    )
+
+    if not arama_terimi or len(arama_terimi.strip()) < 2:
+        raise ToolError("You must enter at least 2 characters to search.")
+
+    arama_terimi = arama_terimi.strip()
+    kategori = arama_kategorisi or "auto"
+
+    sirket_sonuclari = None
+    endeks_sonuclari = None
+    fon_sonuclari = None
+    ozet_bolumleri: list[str] = []
+
+    if kategori in ("auto", "company"):
+        try:
+            company_result = await borsa_client.search_companies_from_kap(arama_terimi)
+            toplam = len(company_result.sonuclar)
+
+            if toplam > 0:
+                if toplam > sonuc_limiti:
+                    trimmed_companies = company_result.sonuclar[:sonuc_limiti]
+                    sirket_sonuclari = SirketAramaSonucu(
+                        arama_terimi=company_result.arama_terimi,
+                        sonuclar=trimmed_companies,
+                        sonuc_sayisi=len(trimmed_companies),
+                        error_message=company_result.error_message,
+                    )
+                    ozet_bolumleri.append(
+                        f"Şirketler: ilk {len(trimmed_companies)}/{toplam} sonuç listelendi."
+                    )
+                else:
+                    sirket_sonuclari = company_result
+                    ozet_bolumleri.append(f"Şirketler: {toplam} sonuç bulundu.")
+            elif company_result.error_message:
+                sirket_sonuclari = company_result
+                ozet_bolumleri.append("Şirket aramasında hata oluştu.")
+            else:
+                sirket_sonuclari = company_result
+                ozet_bolumleri.append("Şirket sonucu bulunamadı.")
+        except Exception as exc:
+            logger.exception("Error in unified company search for query '%s'", arama_terimi)
+            sirket_sonuclari = SirketAramaSonucu(
+                arama_terimi=arama_terimi,
+                sonuclar=[],
+                sonuc_sayisi=0,
+                error_message=f"An unexpected error occurred: {str(exc)}",
+            )
+            ozet_bolumleri.append("Şirket araması başarısız oldu.")
+
+    if kategori in ("auto", "index"):
+        try:
+            index_result = await borsa_client.search_indices_from_kap(arama_terimi)
+            toplam = len(index_result.sonuclar)
+
+            if toplam > 0:
+                if toplam > sonuc_limiti:
+                    trimmed_indices = index_result.sonuclar[:sonuc_limiti]
+                    endeks_sonuclari = EndeksKoduAramaSonucu(
+                        arama_terimi=index_result.arama_terimi,
+                        sonuclar=trimmed_indices,
+                        sonuc_sayisi=len(trimmed_indices),
+                        kaynak_url=index_result.kaynak_url,
+                        error_message=index_result.error_message,
+                    )
+                    ozet_bolumleri.append(
+                        f"Endeksler: ilk {len(trimmed_indices)}/{toplam} sonuç listelendi."
+                    )
+                else:
+                    endeks_sonuclari = index_result
+                    ozet_bolumleri.append(f"Endeksler: {toplam} sonuç bulundu.")
+            elif index_result.error_message:
+                endeks_sonuclari = index_result
+                ozet_bolumleri.append("Endeks aramasında hata oluştu.")
+            else:
+                endeks_sonuclari = index_result
+                ozet_bolumleri.append("Endeks sonucu bulunamadı.")
+        except Exception as exc:
+            logger.exception("Error in unified index search for query '%s'", arama_terimi)
+            endeks_sonuclari = EndeksKoduAramaSonucu(
+                arama_terimi=arama_terimi,
+                sonuclar=[],
+                sonuc_sayisi=0,
+                error_message=f"An unexpected error occurred: {str(exc)}",
+            )
+            ozet_bolumleri.append("Endeks araması başarısız oldu.")
+
+    if kategori in ("auto", "fund"):
+        try:
+            fund_result = await borsa_client.search_funds(
+                arama_terimi,
+                limit=sonuc_limiti,
+                use_takasbank=takasbank_verisini_kullan,
+            )
+            if fund_result.error_message:
+                fon_sonuclari = fund_result
+                ozet_bolumleri.append("Fon aramasında hata oluştu.")
+            elif fund_result.sonuc_sayisi > 0:
+                fon_sonuclari = fund_result
+                ozet_bolumleri.append(
+                    f"Fonlar: {fund_result.sonuc_sayisi} sonuç döndü."
+                )
+            else:
+                fon_sonuclari = fund_result
+                ozet_bolumleri.append("Fon sonucu bulunamadı.")
+        except Exception as exc:
+            logger.exception("Error in unified fund search for query '%s'", arama_terimi)
+            fon_sonuclari = FonAramaSonucu(
+                arama_terimi=arama_terimi,
+                sonuclar=[],
+                sonuc_sayisi=0,
+                error_message=f"An unexpected error occurred: {str(exc)}",
+            )
+            ozet_bolumleri.append("Fon araması başarısız oldu.")
+
+    if not ozet_bolumleri:
+        ozet = "Arama yapılacak kategori bulunamadı."
+    else:
+        ozet = " ".join(ozet_bolumleri)
+
+    return GenelAramaSonucu(
+        arama_terimi=arama_terimi,
+        arama_kategorisi=kategori,
+        sirket_sonuclari=sirket_sonuclari,
+        endeks_sonuclari=endeks_sonuclari,
+        fon_sonuclari=fon_sonuclari,
+        ozet=ozet,
+    )
+
 
 @app.tool(
     description="BIST STOCKS: Search companies by name to find ticker codes. STOCKS ONLY - use get_kripto_exchange_info for crypto.",
